@@ -1,0 +1,146 @@
+#!/bin/bash
+
+# Function to print usage instructions
+print_usage() {
+    echo "Usage: convert2pdf <input_file> [output_file]"
+    echo "Converts DOCX, PPT, or PPTX files to PDF"
+    echo ""
+    echo "If output_file is not specified, creates PDF in the same directory"
+    echo "with the same name as input file"
+    echo ""
+    echo "Examples:"
+    echo "  convert2pdf document.docx"
+    echo "  convert2pdf presentation.pptx custom_name.pdf"
+}
+
+# Check if LibreOffice is installed
+check_libreoffice() {
+    # Check for MacOS LibreOffice installation
+    if [[ "$OSTYPE" == "darwin"* ]]; then
+        if [ -d "/Applications/LibreOffice.app" ]; then
+            LIBREOFFICE_PATH="/Applications/LibreOffice.app/Contents/MacOS/soffice"
+            return 0
+        elif [ -d "$HOME/Applications/LibreOffice.app" ]; then
+            LIBREOFFICE_PATH="$HOME/Applications/LibreOffice.app/Contents/MacOS/soffice"
+            return 0
+        fi
+    else
+        # For Linux and other systems
+        if command -v libreoffice &> /dev/null; then
+            LIBREOFFICE_PATH="libreoffice"
+            return 0
+        fi
+    fi
+
+    echo "Error: LibreOffice is not installed"
+    echo "Please install LibreOffice first:"
+    echo "  For MacOS: brew install libreoffice"
+    echo "  For Ubuntu/Debian: sudo apt-get install libreoffice"
+    echo "  For CentOS/RHEL: sudo yum install libreoffice"
+    exit 1
+}
+
+# Function to get absolute path
+get_absolute_path() {
+    local path="$1"
+    # If path starts with ~, expand it
+    if [[ "$path" == "~"* ]]; then
+        path="${path/\~/$HOME}"
+    fi
+    # Get the absolute path of the directory
+    local dir=$(cd "$(dirname "$path")" 2>/dev/null && pwd)
+    if [ -z "$dir" ]; then
+        # If directory doesn't exist, create it
+        mkdir -p "$(dirname "$path")"
+        dir=$(cd "$(dirname "$path")" && pwd)
+    fi
+    echo "$dir/$(basename "$path")"
+}
+
+# Function to convert file to PDF
+convert_to_pdf() {
+    local input_file="$1"
+    local output_file="$2"
+    local input_dir=$(dirname "$input_file")
+    local input_basename=$(basename "$input_file")
+    local filename_no_ext="${input_basename%.*}"
+    
+    # If no output file is specified, use input filename with .pdf extension
+    if [ -z "$output_file" ]; then
+        output_file="$input_dir/$filename_no_ext.pdf"
+    fi
+
+    # Get absolute paths
+    input_file=$(get_absolute_path "$input_file")
+    output_file=$(get_absolute_path "$output_file")
+    
+    # Create output directory if it doesn't exist
+    mkdir -p "$(dirname "$output_file")"
+
+    # Check if input file exists
+    if [ ! -f "$input_file" ]; then
+        echo "Error: Input file '$input_file' does not exist"
+        exit 1
+    fi
+
+    # Get file extension
+    local extension="${input_file##*.}"
+    extension=$(echo "$extension" | tr '[:upper:]' '[:lower:]')
+
+    # Check if file type is supported
+    case "$extension" in
+        docx|ppt|pptx)
+            echo "Converting $input_file to PDF..."
+            ;;
+        *)
+            echo "Error: Unsupported file format .$extension"
+            echo "Supported formats: .docx, .ppt, .pptx"
+            exit 1
+            ;;
+    esac
+
+    # Create temporary directory for conversion
+    local temp_dir=$(mktemp -d)
+
+    # Convert file to PDF using LibreOffice
+    "$LIBREOFFICE_PATH" --headless --convert-to pdf --outdir "$temp_dir" "$input_file" > /dev/null 2>&1
+
+    # Check if conversion was successful
+    if [ $? -eq 0 ] && [ -f "$temp_dir/$filename_no_ext.pdf" ]; then
+        # Move the converted file to the desired location
+        mv "$temp_dir/$filename_no_ext.pdf" "$output_file"
+        echo "Successfully converted to: $output_file"
+    else
+        echo "Error: Conversion failed"
+        rm -rf "$temp_dir"
+        exit 1
+    fi
+
+    # Clean up temporary directory
+    rm -rf "$temp_dir"
+}
+
+# Main script
+
+# Check if LibreOffice is installed and set the path
+check_libreoffice
+
+# Show help if requested
+if [ "$1" = "-h" ] || [ "$1" = "--help" ]; then
+    print_usage
+    exit 0
+fi
+
+# Check if input file is provided
+if [ $# -eq 0 ]; then
+    echo "Error: No input file specified"
+    print_usage
+    exit 1
+fi
+
+# Get input and output files
+input_file="$1"
+output_file="$2"
+
+# Convert file
+convert_to_pdf "$input_file" "$output_file"
