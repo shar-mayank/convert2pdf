@@ -3,14 +3,15 @@
 # Function to print usage instructions
 print_usage() {
     echo "Usage: convert2pdf <input_file> [output_file]"
-    echo "Converts DOCX, PPT, or PPTX files to PDF"
+    echo "Converts DOC, DOCX, PPT, PPTX, XLS, XLSX files to PDF"
     echo ""
     echo "If output_file is not specified, creates PDF in the same directory"
     echo "with the same name as input file"
     echo ""
     echo "Examples:"
     echo "  convert2pdf document.docx"
-    echo "  convert2pdf presentation.pptx custom_name.pdf"
+    echo "  convert2pdf spreadsheet.xlsx custom_name.pdf"
+    echo "  convert2pdf presentation.pptx path/to/output.pdf"
 }
 
 # Check if LibreOffice is installed
@@ -64,7 +65,7 @@ convert_to_pdf() {
     local input_dir=$(dirname "$input_file")
     local input_basename=$(basename "$input_file")
     local filename_no_ext="${input_basename%.*}"
-    
+
     # If no output file is specified, use input filename with .pdf extension
     if [ -z "$output_file" ]; then
         output_file="$input_dir/$filename_no_ext.pdf"
@@ -73,7 +74,7 @@ convert_to_pdf() {
     # Get absolute paths
     input_file=$(get_absolute_path "$input_file")
     output_file=$(get_absolute_path "$output_file")
-    
+
     # Create output directory if it doesn't exist
     mkdir -p "$(dirname "$output_file")"
 
@@ -89,12 +90,12 @@ convert_to_pdf() {
 
     # Check if file type is supported
     case "$extension" in
-        docx|ppt|pptx)
+        doc|docx|ppt|pptx|xls|xlsx)
             echo "Converting $input_file to PDF..."
             ;;
         *)
             echo "Error: Unsupported file format .$extension"
-            echo "Supported formats: .docx, .ppt, .pptx"
+            echo "Supported formats: .doc, .docx, .ppt, .pptx, .xls, .xlsx"
             exit 1
             ;;
     esac
@@ -102,8 +103,17 @@ convert_to_pdf() {
     # Create temporary directory for conversion
     local temp_dir=$(mktemp -d)
 
+    # Set conversion options based on file type
+    local convert_options="--headless --convert-to pdf --outdir \"$temp_dir\""
+
+    # Special handling for Excel files
+    if [[ "$extension" == "xls" || "$extension" == "xlsx" ]]; then
+        # Add specific options for Excel files if needed
+        convert_options="--headless --convert-to pdf:calc_pdf_Export --outdir \"$temp_dir\""
+    fi
+
     # Convert file to PDF using LibreOffice
-    "$LIBREOFFICE_PATH" --headless --convert-to pdf --outdir "$temp_dir" "$input_file" > /dev/null 2>&1
+    eval "\"$LIBREOFFICE_PATH\" $convert_options \"$input_file\"" > /dev/null 2>&1
 
     # Check if conversion was successful
     if [ $? -eq 0 ] && [ -f "$temp_dir/$filename_no_ext.pdf" ]; then
