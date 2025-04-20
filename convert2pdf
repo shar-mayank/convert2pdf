@@ -20,6 +20,7 @@ print_usage() {
     echo "Options:"
     echo "  -h, --help     Show this help message"
     echo "  -v, --version  Show version information"
+    echo "  --setup        Install required dependencies"
     echo ""
     echo "Supported input formats:"
     echo "  To PDF:   .doc, .docx, .ppt, .pptx, .xls, .xlsx, .odt, .odp, .ods"
@@ -61,6 +62,31 @@ check_libreoffice() {
     exit 1
 }
 
+# Install required dependencies
+setup_dependencies() {
+    echo "Setting up dependencies for convert2pdf..."
+
+    # Check for Python
+    if ! command -v python3 &> /dev/null; then
+        echo "Python 3 not found. Please install it with: brew install python"
+        exit 1
+    fi
+
+    # Install pdf2docx
+    echo "Installing pdf2docx..."
+    pip3 install pdf2docx
+
+    # For PDF to PPTX conversion, we'll first try to install the required tools
+    echo "Installing pypdf2..."
+    pip3 install pypdf2
+
+    echo "Installing python-pptx..."
+    pip3 install python-pptx
+
+    echo "Setup complete. You may now use convert2pdf."
+    exit 0
+}
+
 # Check if Python dependencies are installed
 check_python_dependencies() {
     # Check for Python
@@ -69,21 +95,24 @@ check_python_dependencies() {
         exit 1
     fi
 
-    # Check for pip modules
+    # Check for pdf2docx module
     python3 -c "import pdf2docx" &> /dev/null || {
-        echo "Installing required Python module: pdf2docx"
-        pip3 install pdf2docx &> /dev/null || {
-            echo "Failed to install pdf2docx. Please install it manually: pip3 install pdf2docx"
-            exit 1
-        }
+        echo "Required Python module pdf2docx not found."
+        echo "Run 'convert2pdf --setup' to install dependencies or manually run: pip3 install pdf2docx"
+        exit 1
     }
 
-    python3 -c "import pdf2pptx" &> /dev/null || {
-        echo "Installing required Python module: pdf2pptx"
-        pip3 install pdf2pptx &> /dev/null || {
-            echo "Failed to install pdf2pptx. Please install it manually: pip3 install pdf2pptx"
-            exit 1
-        }
+    # Check for PDF to PPTX dependencies
+    python3 -c "import PyPDF2" &> /dev/null || {
+        echo "Required Python module PyPDF2 not found."
+        echo "Run 'convert2pdf --setup' to install dependencies or manually run: pip3 install pypdf2"
+        exit 1
+    }
+
+    python3 -c "import pptx" &> /dev/null || {
+        echo "Required Python module python-pptx not found."
+        echo "Run 'convert2pdf --setup' to install dependencies or manually run: pip3 install python-pptx"
+        exit 1
     }
 }
 
@@ -175,7 +204,7 @@ convert_to_pdf() {
     rm -rf "$temp_dir"
 }
 
-# Convert PDF to DOCX
+# Convert PDF to DOCX using pdf2docx
 convert_pdf_to_docx() {
     local input_file="$1"
     local output_file="$2"
@@ -208,7 +237,7 @@ convert_pdf_to_docx() {
     fi
 }
 
-# Convert PDF to PPTX
+# Convert PDF to PPTX using Python
 convert_pdf_to_pptx() {
     local input_file="$1"
     local output_file="$2"
@@ -230,20 +259,119 @@ convert_pdf_to_pptx() {
 
     echo "Converting $input_basename to PPTX..."
 
-    # Use pdf2pptx for conversion
-    python3 -c "import pdf2pptx; pdf2pptx.convert('$input_file', '$output_file')" 2>/dev/null
+    # Custom Python script for PDF to PPTX conversion using PyPDF2 and python-pptx
+    PYTHON_SCRIPT=$(cat << 'EOL'
+import sys
+import os
+from PyPDF2 import PdfReader
+from pptx import Presentation
+from pptx.util import Inches
+
+def convert_pdf_to_pptx(pdf_path, pptx_path):
+    # Create presentation
+    prs = Presentation()
+    # Default slide layout (blank)
+    blank_slide_layout = prs.slide_layouts[6]
+
+    # Extract text from PDF
+    pdf = PdfReader(pdf_path)
+
+    # Process each page
+    for page_num in range(len(pdf.pages)):
+        # Extract text
+        page = pdf.pages[page_num]
+        text = page.extract_text()
+
+        # Create slide
+        slide = prs.slides.add_slide(blank_slide_layout)
+
+        # Add text box with extracted text
+        txBox = slide.shapes.add_textbox(Inches(0.5), Inches(0.5),
+                                         Inches(9), Inches(5))
+        tf = txBox.text_frame
+        tf.text = f"Page {page_num + 1}\n\n{text}"
+
+    # Save presentation
+    prs.save(pptx_path)
+    return True
+
+if __name__ == "__main__":
+    if len(sys.argv) != 3:
+        print("Usage: python script.py input.pdf output.pptx")
+        sys.exit(1)
+
+    success = convert_pdf_to_pptx(sys.argv[1], sys.argv[2])
+    if not success:
+        sys.exit(1)
+EOL
+)
+
+    # Execute Python script
+    python3 -c "$PYTHON_SCRIPT" "$input_file" "$output_file" 2>/dev/null
 
     if [ -f "$output_file" ]; then
         echo "Successfully converted to: $output_file"
+        echo "Note: This is a basic conversion with text extraction only."
+        echo "Images and formatting from the PDF may not be preserved."
     else
         echo "Error: Conversion failed"
+        echo "For better PDF to PPTX conversion, consider using commercial tools."
         exit 1
     fi
 }
 
+# Alternative method: Convert PDF to PPTX using LibreOffice
+# This is a fallback method that may not work perfectly
+convert_pdf_to_pptx_lo() {
+    local input_file="$1"
+    local output_file="$2"
+    local input_dir=$(dirname "$input_file")
+    local input_basename=$(basename "$input_file")
+    local filename_no_ext="${input_basename%.*}"
+
+    # If output file is not specified, use the same name with .pptx extension
+    if [ -z "$output_file" ]; then
+        output_file="$input_dir/$filename_no_ext.pptx"
+    fi
+
+    # Get absolute paths
+    input_file=$(get_absolute_path "$input_file")
+    output_file=$(get_absolute_path "$output_file")
+
+    # Create output directory if it doesn't exist
+    mkdir -p "$(dirname "$output_file")"
+
+    echo "Converting $input_basename to PPTX using LibreOffice..."
+
+    # Create temporary directory for conversion
+    local temp_dir=$(mktemp -d)
+
+    # Try to convert PDF to PPTX using LibreOffice
+    # Note: This may not work perfectly for all PDFs
+    eval "\"$LIBREOFFICE_PATH\" --headless --convert-to pptx --outdir \"$temp_dir\" \"$input_file\"" > /dev/null 2>&1
+
+    # Check if conversion was successful
+    if [ $? -eq 0 ] && [ -f "$temp_dir/$filename_no_ext.pptx" ]; then
+        # Move the converted file to the desired location
+        mv "$temp_dir/$filename_no_ext.pptx" "$output_file"
+        echo "Successfully converted to: $output_file"
+        echo "Note: LibreOffice-based PDF to PPTX conversion may not preserve all formatting."
+    else
+        echo "Error: LibreOffice conversion failed"
+        rm -rf "$temp_dir"
+
+        # Try the Python-based conversion as fallback
+        echo "Trying alternative conversion method..."
+        convert_pdf_to_pptx "$input_file" "$output_file"
+    fi
+
+    # Clean up temporary directory
+    rm -rf "$temp_dir"
+}
+
 # Main script execution
 
-# Check for help or version flags
+# Check for special flags
 case "$1" in
     -h|--help)
         print_usage
@@ -251,6 +379,10 @@ case "$1" in
         ;;
     -v|--version)
         show_version
+        exit 0
+        ;;
+    --setup)
+        setup_dependencies
         exit 0
         ;;
 esac
@@ -285,8 +417,19 @@ case "$file_ext" in
         convert_to_pdf "$input_file" "$output_file"
         ;;
     pdf)
-        # Check Python dependencies
-        check_python_dependencies
+        # First, try to check dependencies without noise
+        python3 -c "import pdf2docx" &> /dev/null
+        has_pdf2docx=$?
+        python3 -c "import PyPDF2" &> /dev/null
+        has_pypdf2=$?
+        python3 -c "import pptx" &> /dev/null
+        has_pptx=$?
+
+        # If dependencies aren't installed, notify the user
+        if [ $has_pdf2docx -ne 0 ] || [ $has_pypdf2 -ne 0 ] || [ $has_pptx -ne 0 ]; then
+            echo "Some required Python dependencies are missing."
+            echo "Run 'convert2pdf --setup' to install them automatically."
+        fi
 
         if [ -z "$output_file" ]; then
             # Ask user for the desired output format
@@ -297,10 +440,22 @@ case "$file_ext" in
 
             case "$choice" in
                 1)
-                    convert_pdf_to_docx "$input_file" ""
+                    if [ $has_pdf2docx -eq 0 ]; then
+                        convert_pdf_to_docx "$input_file" ""
+                    else
+                        echo "PDF to DOCX conversion requires the pdf2docx Python module."
+                        echo "Run 'convert2pdf --setup' to install it."
+                        exit 1
+                    fi
                     ;;
                 2)
-                    convert_pdf_to_pptx "$input_file" ""
+                    # First try the Python-based method if dependencies are available
+                    if [ $has_pypdf2 -eq 0 ] && [ $has_pptx -eq 0 ]; then
+                        convert_pdf_to_pptx "$input_file" ""
+                    else
+                        # Fall back to LibreOffice method
+                        convert_pdf_to_pptx_lo "$input_file" ""
+                    fi
                     ;;
                 *)
                     echo "Invalid choice. Exiting."
@@ -314,10 +469,22 @@ case "$file_ext" in
 
             case "$output_ext" in
                 docx)
-                    convert_pdf_to_docx "$input_file" "$output_file"
+                    if [ $has_pdf2docx -eq 0 ]; then
+                        convert_pdf_to_docx "$input_file" "$output_file"
+                    else
+                        echo "PDF to DOCX conversion requires the pdf2docx Python module."
+                        echo "Run 'convert2pdf --setup' to install it."
+                        exit 1
+                    fi
                     ;;
                 pptx)
-                    convert_pdf_to_pptx "$input_file" "$output_file"
+                    # First try the Python-based method if dependencies are available
+                    if [ $has_pypdf2 -eq 0 ] && [ $has_pptx -eq 0 ]; then
+                        convert_pdf_to_pptx "$input_file" "$output_file"
+                    else
+                        # Fall back to LibreOffice method
+                        convert_pdf_to_pptx_lo "$input_file" "$output_file"
+                    fi
                     ;;
                 *)
                     echo "Error: Unsupported output format. Please use .docx or .pptx extension."
