@@ -1,2 +1,15 @@
 # convert2pdf
-convert2pdf is a simple command-line tool for converting DOCX, PPTX and XLXS files to PDF on macOS.
+
+A command-line tool to easily convert between DOCX/PPTX and PDF formats.
+
+## Installation
+
+```bash
+brew install convert2pdf
+```
+
+Note: This tool depends on LibreOffice. If not already installed, you'll need to run:
+
+```bash
+brew install --cask libreoffice
+```
