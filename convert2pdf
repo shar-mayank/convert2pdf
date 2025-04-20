@@ -7,6 +7,7 @@ print_usage() {
     echo "convert2pdf - Convert between Office formats and PDF"
     echo ""
     echo "Usage: convert2pdf <input_file> [output_file]"
+    echo "       convert2pdf --batch <input_pattern> [output_directory]"
     echo ""
     echo "If output_file is not specified, the converted file will be saved in the same"
     echo "directory as the input file with the same name but different extension."
@@ -16,11 +17,14 @@ print_usage() {
     echo "  convert2pdf presentation.pptx output.pdf  # Converts PPTX to PDF with specified name"
     echo "  convert2pdf document.pdf                  # Prompts for DOCX or PPTX output format"
     echo "  convert2pdf spreadsheet.xlsx              # Converts XLSX to PDF"
+    echo "  convert2pdf --batch \"*.docx\"             # Converts all DOCX files in current directory to PDF"
+    echo "  convert2pdf --batch \"reports/*.pptx\" pdfs/ # Converts PPTX files to PDFs in 'pdfs' directory"
     echo ""
     echo "Options:"
     echo "  -h, --help     Show this help message"
     echo "  -v, --version  Show version information"
     echo "  --setup        Install required dependencies"
+    echo "  --batch        Process multiple files matching the input pattern"
     echo ""
     echo "Supported input formats:"
     echo "  To PDF:   .doc, .docx, .ppt, .pptx, .xls, .xlsx, .odt, .odp, .ods"
@@ -156,7 +160,7 @@ convert_to_pdf() {
     # Check if input file exists
     if [ ! -f "$input_file" ]; then
         echo "Error: Input file '$input_file' does not exist"
-        exit 1
+        return 1
     fi
 
     # Get file extension
@@ -171,7 +175,7 @@ convert_to_pdf() {
         *)
             echo "Error: Unsupported file format .$extension"
             echo "Supported formats for conversion to PDF: .doc, .docx, .ppt, .pptx, .xls, .xlsx, .odt, .odp, .ods"
-            exit 1
+            return 1
             ;;
     esac
 
@@ -194,14 +198,13 @@ convert_to_pdf() {
         # Move the converted file to the desired location
         mv "$temp_dir/$filename_no_ext.pdf" "$output_file"
         echo "Successfully converted to: $output_file"
-    else
-        echo "Error: Conversion failed"
         rm -rf "$temp_dir"
-        exit 1
+        return 0
+    else
+        echo "Error: Conversion failed for $input_basename"
+        rm -rf "$temp_dir"
+        return 1
     fi
-
-    # Clean up temporary directory
-    rm -rf "$temp_dir"
 }
 
 # Convert PDF to DOCX using pdf2docx
@@ -231,9 +234,10 @@ convert_pdf_to_docx() {
 
     if [ -f "$output_file" ]; then
         echo "Successfully converted to: $output_file"
+        return 0
     else
-        echo "Error: Conversion failed"
-        exit 1
+        echo "Error: Conversion failed for $input_basename"
+        return 1
     fi
 }
 
@@ -313,10 +317,11 @@ EOL
         echo "Successfully converted to: $output_file"
         echo "Note: This is a basic conversion with text extraction only."
         echo "Images and formatting from the PDF may not be preserved."
+        return 0
     else
-        echo "Error: Conversion failed"
+        echo "Error: Conversion failed for $input_basename"
         echo "For better PDF to PPTX conversion, consider using commercial tools."
-        exit 1
+        return 1
     fi
 }
 
@@ -356,17 +361,190 @@ convert_pdf_to_pptx_lo() {
         mv "$temp_dir/$filename_no_ext.pptx" "$output_file"
         echo "Successfully converted to: $output_file"
         echo "Note: LibreOffice-based PDF to PPTX conversion may not preserve all formatting."
+        rm -rf "$temp_dir"
+        return 0
     else
-        echo "Error: LibreOffice conversion failed"
+        echo "Error: LibreOffice conversion failed for $input_basename"
         rm -rf "$temp_dir"
 
         # Try the Python-based conversion as fallback
         echo "Trying alternative conversion method..."
         convert_pdf_to_pptx "$input_file" "$output_file"
+        return $?
+    fi
+}
+
+# Process multiple files in batch mode
+process_batch() {
+    local input_pattern="$1"
+    local output_dir="$2"
+    local success_count=0
+    local fail_count=0
+    local file_count=0
+
+    # Expand the glob pattern to get all matching files
+    local files=()
+    for file in $input_pattern; do
+        # Skip if the pattern doesn't match any files
+        if [[ ! -f "$file" ]]; then
+            continue
+        fi
+        files+=("$file")
+    done
+
+    file_count=${#files[@]}
+
+    if [ $file_count -eq 0 ]; then
+        echo "No files found matching pattern: $input_pattern"
+        return 1
     fi
 
-    # Clean up temporary directory
-    rm -rf "$temp_dir"
+    echo "Found $file_count files to process"
+
+    # Process each file
+    for file in "${files[@]}"; do
+        # Get file extension
+        local file_ext="${file##*.}"
+        file_ext=$(echo "$file_ext" | tr '[:upper:]' '[:lower:]')
+
+        # Determine output file path
+        local output_file=""
+        if [ -n "$output_dir" ]; then
+            # Ensure output directory exists
+            mkdir -p "$output_dir"
+
+            # Use input filename with appropriate extension in output directory
+            local basename=$(basename "$file")
+            local filename_no_ext="${basename%.*}"
+
+            case "$file_ext" in
+                doc|docx|ppt|pptx|xls|xlsx|odt|odp|ods)
+                    output_file="$output_dir/$filename_no_ext.pdf"
+                    ;;
+                pdf)
+                    # For PDF we need to ask about the output format
+                    echo "For PDF files in batch mode, please specify output format."
+                    echo "1) DOCX (Word Document)"
+                    echo "2) PPTX (PowerPoint Presentation)"
+                    read -p "Enter your choice for all PDF files (1/2): " choice
+
+                    case "$choice" in
+                        1)
+                            output_file="$output_dir/$filename_no_ext.docx"
+                            ;;
+                        2)
+                            output_file="$output_dir/$filename_no_ext.pptx"
+                            ;;
+                        *)
+                            echo "Invalid choice. Skipping PDF files."
+                            continue
+                            ;;
+                    esac
+                    ;;
+                *)
+                    echo "Skipping unsupported file: $file"
+                    continue
+                    ;;
+            esac
+        fi
+
+        # Process file based on extension
+        case "$file_ext" in
+            doc|docx|ppt|pptx|xls|xlsx|odt|odp|ods)
+                if convert_to_pdf "$file" "$output_file"; then
+                    success_count=$((success_count + 1))
+                else
+                    fail_count=$((fail_count + 1))
+                fi
+                ;;
+            pdf)
+                # Check if we have a choice from above for PDF files
+                if [ -n "$choice" ]; then
+                    case "$choice" in
+                        1)
+                            if convert_pdf_to_docx "$file" "$output_file"; then
+                                success_count=$((success_count + 1))
+                            else
+                                fail_count=$((fail_count + 1))
+                            fi
+                            ;;
+                        2)
+                            # First try the Python-based method
+                            python3 -c "import PyPDF2; import pptx" &> /dev/null
+                            if [ $? -eq 0 ]; then
+                                if convert_pdf_to_pptx "$file" "$output_file"; then
+                                    success_count=$((success_count + 1))
+                                else
+                                    fail_count=$((fail_count + 1))
+                                fi
+                            else
+                                # Fall back to LibreOffice
+                                if convert_pdf_to_pptx_lo "$file" "$output_file"; then
+                                    success_count=$((success_count + 1))
+                                else
+                                    fail_count=$((fail_count + 1))
+                                fi
+                            fi
+                            ;;
+                    esac
+                else
+                    # If we're processing a single PDF, we'll ask for the format
+                    echo "For batch processing PDF files, please specify output format."
+                    echo "1) DOCX (Word Document)"
+                    echo "2) PPTX (PowerPoint Presentation)"
+                    read -p "Enter your choice (1/2): " choice
+
+                    case "$choice" in
+                        1)
+                            if [ -n "$output_dir" ]; then
+                                output_file="$output_dir/$(basename "${file%.*}").docx"
+                            fi
+                            if convert_pdf_to_docx "$file" "$output_file"; then
+                                success_count=$((success_count + 1))
+                            else
+                                fail_count=$((fail_count + 1))
+                            fi
+                            ;;
+                        2)
+                            if [ -n "$output_dir" ]; then
+                                output_file="$output_dir/$(basename "${file%.*}").pptx"
+                            fi
+                            # First try the Python-based method
+                            python3 -c "import PyPDF2; import pptx" &> /dev/null
+                            if [ $? -eq 0 ]; then
+                                if convert_pdf_to_pptx "$file" "$output_file"; then
+                                    success_count=$((success_count + 1))
+                                else
+                                    fail_count=$((fail_count + 1))
+                                fi
+                            else
+                                # Fall back to LibreOffice
+                                if convert_pdf_to_pptx_lo "$file" "$output_file"; then
+                                    success_count=$((success_count + 1))
+                                else
+                                    fail_count=$((fail_count + 1))
+                                fi
+                            fi
+                            ;;
+                        *)
+                            echo "Invalid choice. Skipping file: $file"
+                            fail_count=$((fail_count + 1))
+                            ;;
+                    esac
+                fi
+                ;;
+            *)
+                echo "Skipping unsupported file: $file"
+                fail_count=$((fail_count + 1))
+                ;;
+        esac
+    done
+
+    echo "Batch processing complete."
+    echo "Successfully converted: $success_count files"
+    if [ $fail_count -gt 0 ]; then
+        echo "Failed to convert: $fail_count files"
+    fi
 }
 
 # Main script execution
@@ -384,6 +562,17 @@ case "$1" in
     --setup)
         setup_dependencies
         exit 0
+        ;;
+    --batch)
+        if [ $# -lt 2 ]; then
+            echo "Error: Missing input pattern for batch processing"
+            print_usage
+            exit 1
+        fi
+        # Check LibreOffice installation before processing
+        check_libreoffice
+        process_batch "$2" "$3"
+        exit $?
         ;;
 esac
 
