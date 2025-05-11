@@ -48,6 +48,12 @@ class Convert2pdf < Formula
   end
 
   test do
+    # Basic version test
     assert_match "convert2pdf version #{version}", shell_output("#{bin}/convert2pdf --version")
+
+    # A simple text file to test conversion
+    (testpath/"test.txt").write("Hello, Homebrew!")
+    system bin/"convert2pdf", "test.txt", "output.pdf"
+    assert_predicate testpath/"output.pdf", :exist?
   end
 end

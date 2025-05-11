@@ -1,0 +1,5 @@
+numpy<2.0
+pdf2docx==0.5.8
+PyPDF2==3.0.1
+python-pptx==1.0.2
+

@@ -67,6 +67,7 @@ check_libreoffice() {
 }
 
 # Install required dependencies
+# Install required dependencies
 setup_dependencies() {
     echo "Setting up dependencies for convert2pdf..."
 
@@ -76,21 +77,21 @@ setup_dependencies() {
         exit 1
     fi
 
-    # Install pdf2docx
-    echo "Installing pdf2docx..."
-    pip3 install pdf2docx
+    # Get the directory where the script is located
+    SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+    
+    # Install all dependencies from requirements.txt
+    echo "Installing Python dependencies..."
+    pip3 install -r "$SCRIPT_DIR/requirements.txt"
 
-    # For PDF to PPTX conversion, we'll first try to install the required tools
-    echo "Installing pypdf2..."
-    pip3 install pypdf2
-
-    echo "Installing python-pptx..."
-    pip3 install python-pptx
-
-    echo "Setup complete. You may now use convert2pdf."
-    exit 0
+    if [ $? -eq 0 ]; then
+        echo "Setup complete. You may now use convert2pdf."
+        exit 0
+    else
+        echo "Error: Failed to install dependencies."
+        exit 1
+    fi
 }
-
 # Check if Python dependencies are installed
 check_python_dependencies() {
     # Check for Python
