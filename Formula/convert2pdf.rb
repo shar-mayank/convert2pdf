@@ -1,10 +1,10 @@
 class Convert2pdf < Formula
   desc "Command-line tool to convert between Office formats and PDF"
   homepage "https://github.com/shar-mayank/convert2pdf"
-  url "https://github.com/shar-mayank/convert2pdf/archive/refs/tags/v1.0.1.tar.gz"
-  sha256 "3af26db77fe23577c9ff8027fdd2ba41a6801485de246322acc18649ab712857"
+  url "https://github.com/shar-mayank/convert2pdf/archive/refs/tags/v1.0.0.tar.gz"
+  sha256 "7f0f9097aa1e94a44d129491b464bef050694fc11f9b5a6235f94895478adacf"
   license "MIT"
-  version "1.0.1"
+  version "1.0.0"
   head "https://github.com/shar-mayank/convert2pdf.git", branch: "main"
 
   depends_on "python@3.13"
