@@ -1,26 +1,35 @@
 # convert2pdf
 
-A versatile command line tool to convert between Office formats and PDF.
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Linux-blue.svg)](https://github.com/shar-mayank/convert2pdf)
+
+A versatile command-line tool to convert between Office formats and PDF.
 
 ## Features
 
-- Convert Office documents to PDF (DOCX, PPTX, XLSX, etc.)
-- Convert PDF back to Office formats (DOCX, PPTX)
-- Batch conversion support
-- Cross-platform (macOS, Linux)
+- 📄 Convert Office documents to PDF (DOCX, PPTX, XLSX, ODS, ODT, ODP, TXT, RTF, CSV)
+- 📋 Convert PDF back to Office formats (DOCX, PPTX)
+- 🔄 Batch conversion support for processing multiple files
+- 🎨 Colored output for better readability
+- ⚡ Cross-platform support (macOS, Linux)
+- 🐚 Shell completion for Bash and Zsh
 
 ## Installation
 
 ### Using Homebrew (macOS)
 
 ```bash
-brew install shar-mayank/tools/convert2pdf
+# Add the tap first
+brew tap shar-mayank/tools
+
+# Install convert2pdf
+brew install convert2pdf
 ```
 
-Or, if the formula is in homebrew-core:
+Or install directly:
 
 ```bash
-brew install convert2pdf
+brew install shar-mayank/tools/convert2pdf
 ```
 
 ### Manual Installation
@@ -28,6 +37,7 @@ brew install convert2pdf
 1. Clone the repository:
    ```bash
    git clone https://github.com/shar-mayank/convert2pdf.git
+   cd convert2pdf
    ```
 
 2. Make the script executable:
@@ -42,17 +52,46 @@ brew install convert2pdf
 
 4. Move to a directory in your PATH (optional, for global access):
    ```bash
-   sudo mv convert2pdf /usr/local/bin/
+   sudo cp convert2pdf /usr/local/bin/
+   ```
+
+5. (Optional) Install shell completions:
+   ```bash
+   # For Bash
+   sudo cp completions/convert2pdf.bash /usr/local/etc/bash_completion.d/convert2pdf
+
+   # For Zsh
+   sudo cp completions/convert2pdf.zsh /usr/local/share/zsh/site-functions/_convert2pdf
    ```
 
 ## Dependencies
 
-- LibreOffice - Used for document format conversions
-- Python 3 - For PDF to Office format conversions
-- Python packages (installed automatically with `--setup`):
-  - pdf2docx - For PDF to DOCX conversion
-  - PyPDF2 - For PDF to PPTX conversion
-  - python-pptx - For PDF to PPTX conversion
+### Required
+- **LibreOffice** - Used for document format conversions
+- **Python 3** (3.8 or later) - For PDF to Office format conversions
+
+### Python Packages
+These are installed automatically with `--setup`:
+- `pdf2docx` (0.5.8) - For PDF to DOCX conversion
+- `PyPDF2` (3.0.1) - For reading PDF files
+- `python-pptx` (1.0.2) - For creating PPTX files
+- `numpy` (<2.0) - Required by pdf2docx
+
+### Installing LibreOffice
+
+```bash
+# macOS
+brew install --cask libreoffice
+
+# Ubuntu/Debian
+sudo apt-get install libreoffice
+
+# Fedora
+sudo dnf install libreoffice
+
+# CentOS/RHEL
+sudo yum install libreoffice
+```
 
 ## Usage
 
@@ -98,8 +137,16 @@ Options:
 
 ### Supported Formats
 
-- To PDF: .doc, .docx, .ppt, .pptx, .xls, .xlsx, .odt, .odp, .ods
-- From PDF: Convert to .docx or .pptx
+**To PDF:**
+- Word: `.doc`, `.docx`
+- PowerPoint: `.ppt`, `.pptx`
+- Excel: `.xls`, `.xlsx`
+- OpenDocument: `.odt`, `.odp`, `.ods`
+- Text: `.txt`, `.rtf`, `.csv`
+
+**From PDF:**
+- Word Document: `.docx`
+- PowerPoint: `.pptx`
 
 ## Examples
 
@@ -131,15 +178,49 @@ Options:
 ## Shell Completion
 
 This tool includes shell completion for:
-- Bash: Command options and file completion
-- Zsh: Command options and file completion
+- **Bash**: Command options and file completion
+- **Zsh**: Command options and file completion
 
 When installed via Homebrew, completion scripts are automatically installed.
 
+For manual installation, see the [Installation](#installation) section.
+
+## Testing
+
+Run the test suite to verify the installation:
+
+```bash
+./test/test_convert2pdf.sh
+
+# For verbose output
+./test/test_convert2pdf.sh --verbose
+```
+
+## Troubleshooting
+
+### LibreOffice not found
+Make sure LibreOffice is installed and accessible. On macOS, it should be in `/Applications/LibreOffice.app`.
+
+### Python dependencies missing
+Run `convert2pdf --setup` to install required Python packages automatically.
+
+### Permission denied
+Make sure the script is executable: `chmod +x convert2pdf`
+
 ## License
 
-MIT License
+MIT License - see [LICENSE](LICENSE) file for details.
+
+## Author
+
+**Mayank Sharma** - [GitHub](https://github.com/shar-mayank)
 
 ## Contributing
 
 Contributions are welcome! Please feel free to submit a Pull Request.
+
+1. Fork the repository
+2. Create your feature branch (`git checkout -b feature/amazing-feature`)
+3. Commit your changes (`git commit -m 'Add amazing feature'`)
+4. Push to the branch (`git push origin feature/amazing-feature`)
+5. Open a Pull Request

@@ -1,6 +1,46 @@
 #!/usr/bin/env bash
+#
+# convert2pdf - Convert between Office formats and PDF
+# Author: Mayank Sharma
+# License: MIT
+# Repository: https://github.com/shar-mayank/convert2pdf
+#
+
+set -o pipefail
 
 VERSION="0.1.0"
+
+# Colors for output (only if terminal supports it)
+if [[ -t 1 ]]; then
+    RED='\033[0;31m'
+    GREEN='\033[0;32m'
+    YELLOW='\033[0;33m'
+    BLUE='\033[0;34m'
+    NC='\033[0m' # No Color
+else
+    RED=''
+    GREEN=''
+    YELLOW=''
+    BLUE=''
+    NC=''
+fi
+
+# Logging functions
+log_info() {
+    echo -e "${BLUE}[INFO]${NC} $1"
+}
+
+log_success() {
+    echo -e "${GREEN}[SUCCESS]${NC} $1"
+}
+
+log_warning() {
+    echo -e "${YELLOW}[WARNING]${NC} $1"
+}
+
+log_error() {
+    echo -e "${RED}[ERROR]${NC} $1" >&2
+}
 
 # Function to print usage instructions
 print_usage() {
@@ -27,8 +67,9 @@ print_usage() {
     echo "  --batch        Process multiple files matching the input pattern"
     echo ""
     echo "Supported input formats:"
-    echo "  To PDF:   .doc, .docx, .ppt, .pptx, .xls, .xlsx, .odt, .odp, .ods"
+    echo "  To PDF:   .doc, .docx, .ppt, .pptx, .xls, .xlsx, .odt, .odp, .ods, .txt, .rtf, .csv"
     echo "  From PDF: Convert to .docx or .pptx"
+    echo "  TXT:      Convert .txt to .pdf or .docx"
 }
 
 # Display version information
@@ -40,12 +81,22 @@ show_version() {
 check_libreoffice() {
     # Check for MacOS LibreOffice installation
     if [[ "$OSTYPE" == "darwin"* ]]; then
-        if [ -d "/Applications/LibreOffice.app" ]; then
+        if [[ -d "/Applications/LibreOffice.app" ]]; then
             LIBREOFFICE_PATH="/Applications/LibreOffice.app/Contents/MacOS/soffice"
             return 0
-        elif [ -d "$HOME/Applications/LibreOffice.app" ]; then
+        elif [[ -d "$HOME/Applications/LibreOffice.app" ]]; then
             LIBREOFFICE_PATH="$HOME/Applications/LibreOffice.app/Contents/MacOS/soffice"
             return 0
+        fi
+        # Check for Homebrew-installed LibreOffice
+        local brew_lo="/opt/homebrew/Caskroom/libreoffice"
+        if [[ -d "$brew_lo" ]]; then
+            local lo_version
+            lo_version=$(ls -1 "$brew_lo" 2>/dev/null | head -1)
+            if [[ -n "$lo_version" && -d "$brew_lo/$lo_version/LibreOffice.app" ]]; then
+                LIBREOFFICE_PATH="$brew_lo/$lo_version/LibreOffice.app/Contents/MacOS/soffice"
+                return 0
+            fi
         fi
     else
         # For Linux and other systems
@@ -56,39 +107,60 @@ check_libreoffice() {
             LIBREOFFICE_PATH="soffice"
             return 0
         fi
+        # Check common Linux paths
+        local linux_paths=(
+            "/usr/bin/libreoffice"
+            "/usr/lib/libreoffice/program/soffice"
+            "/opt/libreoffice/program/soffice"
+        )
+        for path in "${linux_paths[@]}"; do
+            if [[ -x "$path" ]]; then
+                LIBREOFFICE_PATH="$path"
+                return 0
+            fi
+        done
     fi
 
-    echo "Error: LibreOffice is not installed"
+    log_error "LibreOffice is not installed"
     echo "Please install LibreOffice first:"
-    echo "  For MacOS: brew install --cask libreoffice"
+    echo "  For macOS: brew install --cask libreoffice"
     echo "  For Ubuntu/Debian: sudo apt-get install libreoffice"
     echo "  For CentOS/RHEL: sudo yum install libreoffice"
+    echo "  For Fedora: sudo dnf install libreoffice"
     exit 1
 }
 
 # Install required dependencies
-# Install required dependencies
 setup_dependencies() {
-    echo "Setting up dependencies for convert2pdf..."
+    log_info "Setting up dependencies for convert2pdf..."
 
     # Check for Python
     if ! command -v python3 &> /dev/null; then
-        echo "Python 3 not found. Please install it with: brew install python"
+        log_error "Python 3 not found."
+        echo "Please install Python 3:"
+        echo "  For macOS: brew install python"
+        echo "  For Ubuntu/Debian: sudo apt-get install python3 python3-pip"
         exit 1
     fi
 
     # Get the directory where the script is located
     SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
-    
-    # Install all dependencies from requirements.txt
-    echo "Installing Python dependencies..."
-    pip3 install -r "$SCRIPT_DIR/requirements.txt"
 
-    if [ $? -eq 0 ]; then
-        echo "Setup complete. You may now use convert2pdf."
+    # Check if requirements.txt exists
+    if [[ ! -f "$SCRIPT_DIR/requirements.txt" ]]; then
+        log_warning "requirements.txt not found. Installing packages individually..."
+        pip3 install --user "numpy<2.0" pdf2docx==0.5.8 PyPDF2==3.0.1 python-pptx==1.0.2
+    else
+        # Install all dependencies from requirements.txt
+        log_info "Installing Python dependencies..."
+        pip3 install --user -r "$SCRIPT_DIR/requirements.txt"
+    fi
+
+    if [[ $? -eq 0 ]]; then
+        log_success "Setup complete. You may now use convert2pdf."
         exit 0
     else
-        echo "Error: Failed to install dependencies."
+        log_error "Failed to install dependencies."
         exit 1
     fi
 }
@@ -96,45 +168,71 @@ setup_dependencies() {
 check_python_dependencies() {
     # Check for Python
     if ! command -v python3 &> /dev/null; then
-        echo "Python 3 not found. Please install it with: brew install python"
+        log_error "Python 3 not found."
+        echo "Please install Python 3:"
+        echo "  For macOS: brew install python"
+        echo "  For Ubuntu/Debian: sudo apt-get install python3 python3-pip"
         exit 1
     fi
 
+    local missing_deps=()
+
     # Check for pdf2docx module
-    python3 -c "import pdf2docx" &> /dev/null || {
-        echo "Required Python module pdf2docx not found."
-        echo "Run 'convert2pdf --setup' to install dependencies or manually run: pip3 install pdf2docx"
-        exit 1
-    }
+    python3 -c "import pdf2docx" &> /dev/null || missing_deps+=("pdf2docx")
 
     # Check for PDF to PPTX dependencies
-    python3 -c "import PyPDF2" &> /dev/null || {
-        echo "Required Python module PyPDF2 not found."
-        echo "Run 'convert2pdf --setup' to install dependencies or manually run: pip3 install pypdf2"
-        exit 1
-    }
+    python3 -c "import PyPDF2" &> /dev/null || missing_deps+=("PyPDF2")
+    python3 -c "import pptx" &> /dev/null || missing_deps+=("python-pptx")
 
-    python3 -c "import pptx" &> /dev/null || {
-        echo "Required Python module python-pptx not found."
-        echo "Run 'convert2pdf --setup' to install dependencies or manually run: pip3 install python-pptx"
+    if [[ ${#missing_deps[@]} -gt 0 ]]; then
+        log_error "Missing Python dependencies: ${missing_deps[*]}"
+        echo "Run 'convert2pdf --setup' to install dependencies automatically"
+        echo "Or manually install: pip3 install ${missing_deps[*]}"
         exit 1
-    }
+    fi
 }
 
 # Function to get absolute path
 get_absolute_path() {
     local path="$1"
+
+    # Handle empty path
+    if [[ -z "$path" ]]; then
+        echo ""
+        return 1
+    fi
+
     # If path starts with ~, expand it
     if [[ "$path" == "~"* ]]; then
-        path="${path/\~/$HOME}"
+        path="${path/#\~/$HOME}"
     fi
+
+    # If already absolute, just normalize it
+    if [[ "$path" == /* ]]; then
+        # Get the directory part
+        local dir
+        dir=$(dirname "$path")
+        if [[ ! -d "$dir" ]]; then
+            mkdir -p "$dir"
+        fi
+        echo "$path"
+        return 0
+    fi
+
     # Get the absolute path of the directory
-    local dir=$(cd "$(dirname "$path")" 2>/dev/null && pwd)
-    if [ -z "$dir" ]; then
+    local dir
+    dir=$(cd "$(dirname "$path")" 2>/dev/null && pwd)
+    if [[ -z "$dir" ]]; then
         # If directory doesn't exist, create it
-        mkdir -p "$(dirname "$path")"
-        dir=$(cd "$(dirname "$path")" && pwd)
+        mkdir -p "$(dirname "$path")" 2>/dev/null
+        dir=$(cd "$(dirname "$path")" 2>/dev/null && pwd)
     fi
+
+    if [[ -z "$dir" ]]; then
+        log_error "Cannot resolve path: $path"
+        return 1
+    fi
+
     echo "$dir/$(basename "$path")"
 }
 
@@ -142,12 +240,16 @@ get_absolute_path() {
 convert_to_pdf() {
     local input_file="$1"
     local output_file="$2"
-    local input_dir=$(dirname "$input_file")
-    local input_basename=$(basename "$input_file")
-    local filename_no_ext="${input_basename%.*}"
+    local input_dir
+    local input_basename
+    local filename_no_ext
+
+    input_dir=$(dirname "$input_file")
+    input_basename=$(basename "$input_file")
+    filename_no_ext="${input_basename%.*}"
 
     # If no output file is specified, use input filename with .pdf extension
-    if [ -z "$output_file" ]; then
+    if [[ -z "$output_file" ]]; then
         output_file="$input_dir/$filename_no_ext.pdf"
     fi
 
@@ -159,8 +261,8 @@ convert_to_pdf() {
     mkdir -p "$(dirname "$output_file")"
 
     # Check if input file exists
-    if [ ! -f "$input_file" ]; then
-        echo "Error: Input file '$input_file' does not exist"
+    if [[ ! -f "$input_file" ]]; then
+        log_error "Input file '$input_file' does not exist"
         return 1
     fi
 
@@ -170,40 +272,44 @@ convert_to_pdf() {
 
     # Check if file type is supported
     case "$extension" in
-        doc|docx|ppt|pptx|xls|xlsx|odt|odp|ods)
-            echo "Converting $input_basename to PDF..."
+        doc|docx|ppt|pptx|xls|xlsx|odt|odp|ods|txt|rtf|csv)
+            log_info "Converting $input_basename to PDF..."
             ;;
         *)
-            echo "Error: Unsupported file format .$extension"
-            echo "Supported formats for conversion to PDF: .doc, .docx, .ppt, .pptx, .xls, .xlsx, .odt, .odp, .ods"
+            log_error "Unsupported file format .$extension"
+            echo "Supported formats for conversion to PDF: .doc, .docx, .ppt, .pptx, .xls, .xlsx, .odt, .odp, .ods, .txt, .rtf, .csv"
             return 1
             ;;
     esac
 
     # Create temporary directory for conversion
-    local temp_dir=$(mktemp -d)
+    local temp_dir
+    temp_dir=$(mktemp -d)
+
+    # Ensure temp directory cleanup on exit
+    trap "rm -rf '$temp_dir'" RETURN
 
     # Set conversion options based on file type
     local convert_options="--headless --convert-to pdf --outdir \"$temp_dir\""
 
-    # Special handling for Excel files
-    if [[ "$extension" == "xls" || "$extension" == "xlsx" || "$extension" == "ods" ]]; then
+    # Special handling for spreadsheet files
+    if [[ "$extension" == "xls" || "$extension" == "xlsx" || "$extension" == "ods" || "$extension" == "csv" ]]; then
         convert_options="--headless --convert-to pdf:calc_pdf_Export --outdir \"$temp_dir\""
     fi
 
     # Convert file to PDF using LibreOffice
+    local convert_result
     eval "\"$LIBREOFFICE_PATH\" $convert_options \"$input_file\"" > /dev/null 2>&1
+    convert_result=$?
 
     # Check if conversion was successful
-    if [ $? -eq 0 ] && [ -f "$temp_dir/$filename_no_ext.pdf" ]; then
+    if [[ $convert_result -eq 0 ]] && [[ -f "$temp_dir/$filename_no_ext.pdf" ]]; then
         # Move the converted file to the desired location
         mv "$temp_dir/$filename_no_ext.pdf" "$output_file"
-        echo "Successfully converted to: $output_file"
-        rm -rf "$temp_dir"
+        log_success "Converted to: $output_file"
         return 0
     else
-        echo "Error: Conversion failed for $input_basename"
-        rm -rf "$temp_dir"
+        log_error "Conversion failed for $input_basename"
         return 1
     fi
 }
@@ -212,12 +318,16 @@ convert_to_pdf() {
 convert_pdf_to_docx() {
     local input_file="$1"
     local output_file="$2"
-    local input_dir=$(dirname "$input_file")
-    local input_basename=$(basename "$input_file")
-    local filename_no_ext="${input_basename%.*}"
+    local input_dir
+    local input_basename
+    local filename_no_ext
+
+    input_dir=$(dirname "$input_file")
+    input_basename=$(basename "$input_file")
+    filename_no_ext="${input_basename%.*}"
 
     # If output file is not specified, use the same name with .docx extension
-    if [ -z "$output_file" ]; then
+    if [[ -z "$output_file" ]]; then
         output_file="$input_dir/$filename_no_ext.docx"
     fi
 
@@ -228,16 +338,26 @@ convert_pdf_to_docx() {
     # Create output directory if it doesn't exist
     mkdir -p "$(dirname "$output_file")"
 
-    echo "Converting $input_basename to DOCX..."
+    log_info "Converting $input_basename to DOCX..."
 
-    # Use pdf2docx for conversion
-    python3 -c "from pdf2docx import Converter; cv = Converter('$input_file'); cv.convert('$output_file'); cv.close()" 2>/dev/null
+    # Use pdf2docx for conversion with proper error handling
+    python3 << EOF 2>/dev/null
+from pdf2docx import Converter
+import sys
+try:
+    cv = Converter('$input_file')
+    cv.convert('$output_file')
+    cv.close()
+except Exception as e:
+    print(f"Error: {e}", file=sys.stderr)
+    sys.exit(1)
+EOF
 
-    if [ -f "$output_file" ]; then
-        echo "Successfully converted to: $output_file"
+    if [[ -f "$output_file" ]]; then
+        log_success "Converted to: $output_file"
         return 0
     else
-        echo "Error: Conversion failed for $input_basename"
+        log_error "Conversion failed for $input_basename"
         return 1
     fi
 }
@@ -246,12 +366,16 @@ convert_pdf_to_docx() {
 convert_pdf_to_pptx() {
     local input_file="$1"
     local output_file="$2"
-    local input_dir=$(dirname "$input_file")
-    local input_basename=$(basename "$input_file")
-    local filename_no_ext="${input_basename%.*}"
+    local input_dir
+    local input_basename
+    local filename_no_ext
+
+    input_dir=$(dirname "$input_file")
+    input_basename=$(basename "$input_file")
+    filename_no_ext="${input_basename%.*}"
 
     # If output file is not specified, use the same name with .pptx extension
-    if [ -z "$output_file" ]; then
+    if [[ -z "$output_file" ]]; then
         output_file="$input_dir/$filename_no_ext.pptx"
     fi
 
@@ -262,7 +386,7 @@ convert_pdf_to_pptx() {
     # Create output directory if it doesn't exist
     mkdir -p "$(dirname "$output_file")"
 
-    echo "Converting $input_basename to PPTX..."
+    log_info "Converting $input_basename to PPTX..."
 
     # Custom Python script for PDF to PPTX conversion using PyPDF2 and python-pptx
     PYTHON_SCRIPT=$(cat << 'EOL'
@@ -270,35 +394,56 @@ import sys
 import os
 from PyPDF2 import PdfReader
 from pptx import Presentation
-from pptx.util import Inches
+from pptx.util import Inches, Pt
+from pptx.dml.color import RgbColor
 
 def convert_pdf_to_pptx(pdf_path, pptx_path):
-    # Create presentation
-    prs = Presentation()
-    # Default slide layout (blank)
-    blank_slide_layout = prs.slide_layouts[6]
+    try:
+        # Create presentation
+        prs = Presentation()
+        # Default slide layout (blank)
+        blank_slide_layout = prs.slide_layouts[6]
 
-    # Extract text from PDF
-    pdf = PdfReader(pdf_path)
+        # Extract text from PDF
+        pdf = PdfReader(pdf_path)
 
-    # Process each page
-    for page_num in range(len(pdf.pages)):
-        # Extract text
-        page = pdf.pages[page_num]
-        text = page.extract_text()
+        if len(pdf.pages) == 0:
+            print("Error: PDF has no pages", file=sys.stderr)
+            return False
 
-        # Create slide
-        slide = prs.slides.add_slide(blank_slide_layout)
+        # Process each page
+        for page_num in range(len(pdf.pages)):
+            # Extract text
+            page = pdf.pages[page_num]
+            text = page.extract_text() or ""
 
-        # Add text box with extracted text
-        txBox = slide.shapes.add_textbox(Inches(0.5), Inches(0.5),
-                                         Inches(9), Inches(5))
-        tf = txBox.text_frame
-        tf.text = f"Page {page_num + 1}\n\n{text}"
+            # Create slide
+            slide = prs.slides.add_slide(blank_slide_layout)
 
-    # Save presentation
-    prs.save(pptx_path)
-    return True
+            # Add text box with extracted text
+            txBox = slide.shapes.add_textbox(Inches(0.5), Inches(0.5),
+                                             Inches(9), Inches(6.5))
+            tf = txBox.text_frame
+            tf.word_wrap = True
+
+            # Add page header
+            p = tf.paragraphs[0]
+            p.text = f"Page {page_num + 1}"
+            p.font.bold = True
+            p.font.size = Pt(14)
+
+            # Add content
+            if text.strip():
+                p2 = tf.add_paragraph()
+                p2.text = text
+                p2.font.size = Pt(11)
+
+        # Save presentation
+        prs.save(pptx_path)
+        return True
+    except Exception as e:
+        print(f"Error: {e}", file=sys.stderr)
+        return False
 
 if __name__ == "__main__":
     if len(sys.argv) != 3:
@@ -314,13 +459,13 @@ EOL
     # Execute Python script
     python3 -c "$PYTHON_SCRIPT" "$input_file" "$output_file" 2>/dev/null
 
-    if [ -f "$output_file" ]; then
-        echo "Successfully converted to: $output_file"
-        echo "Note: This is a basic conversion with text extraction only."
+    if [[ -f "$output_file" ]]; then
+        log_success "Converted to: $output_file"
+        log_warning "This is a basic conversion with text extraction only."
         echo "Images and formatting from the PDF may not be preserved."
         return 0
     else
-        echo "Error: Conversion failed for $input_basename"
+        log_error "Conversion failed for $input_basename"
         echo "For better PDF to PPTX conversion, consider using commercial tools."
         return 1
     fi
@@ -331,12 +476,16 @@ EOL
 convert_pdf_to_pptx_lo() {
     local input_file="$1"
     local output_file="$2"
-    local input_dir=$(dirname "$input_file")
-    local input_basename=$(basename "$input_file")
-    local filename_no_ext="${input_basename%.*}"
+    local input_dir
+    local input_basename
+    local filename_no_ext
+
+    input_dir=$(dirname "$input_file")
+    input_basename=$(basename "$input_file")
+    filename_no_ext="${input_basename%.*}"
 
     # If output file is not specified, use the same name with .pptx extension
-    if [ -z "$output_file" ]; then
+    if [[ -z "$output_file" ]]; then
         output_file="$input_dir/$filename_no_ext.pptx"
     fi
 
@@ -347,31 +496,131 @@ convert_pdf_to_pptx_lo() {
     # Create output directory if it doesn't exist
     mkdir -p "$(dirname "$output_file")"
 
-    echo "Converting $input_basename to PPTX using LibreOffice..."
+    log_info "Converting $input_basename to PPTX using LibreOffice..."
 
     # Create temporary directory for conversion
-    local temp_dir=$(mktemp -d)
+    local temp_dir
+    temp_dir=$(mktemp -d)
+    trap "rm -rf '$temp_dir'" RETURN
 
     # Try to convert PDF to PPTX using LibreOffice
     # Note: This may not work perfectly for all PDFs
+    local convert_result
     eval "\"$LIBREOFFICE_PATH\" --headless --convert-to pptx --outdir \"$temp_dir\" \"$input_file\"" > /dev/null 2>&1
+    convert_result=$?
 
     # Check if conversion was successful
-    if [ $? -eq 0 ] && [ -f "$temp_dir/$filename_no_ext.pptx" ]; then
+    if [[ $convert_result -eq 0 ]] && [[ -f "$temp_dir/$filename_no_ext.pptx" ]]; then
         # Move the converted file to the desired location
         mv "$temp_dir/$filename_no_ext.pptx" "$output_file"
-        echo "Successfully converted to: $output_file"
-        echo "Note: LibreOffice-based PDF to PPTX conversion may not preserve all formatting."
-        rm -rf "$temp_dir"
+        log_success "Converted to: $output_file"
+        log_warning "LibreOffice-based PDF to PPTX conversion may not preserve all formatting."
         return 0
     else
-        echo "Error: LibreOffice conversion failed for $input_basename"
-        rm -rf "$temp_dir"
-
-        # Try the Python-based conversion as fallback
-        echo "Trying alternative conversion method..."
+        log_warning "LibreOffice conversion failed for $input_basename"
+        log_info "Trying alternative conversion method..."
         convert_pdf_to_pptx "$input_file" "$output_file"
         return $?
+    fi
+}
+
+# Convert TXT to DOCX using Python
+convert_txt_to_docx() {
+    local input_file="$1"
+    local output_file="$2"
+    local input_dir
+    local input_basename
+    local filename_no_ext
+
+    input_dir=$(dirname "$input_file")
+    input_basename=$(basename "$input_file")
+    filename_no_ext="${input_basename%.*}"
+
+    # If output file is not specified, use the same name with .docx extension
+    if [[ -z "$output_file" ]]; then
+        output_file="$input_dir/$filename_no_ext.docx"
+    fi
+
+    # Get absolute paths
+    input_file=$(get_absolute_path "$input_file")
+    output_file=$(get_absolute_path "$output_file")
+
+    # Create output directory if it doesn't exist
+    mkdir -p "$(dirname "$output_file")"
+
+    log_info "Converting $input_basename to DOCX..."
+
+    # Check if python-docx is available, if not use python-pptx's docx support
+    python3 << EOF 2>/dev/null
+import sys
+try:
+    from pptx.util import Inches, Pt
+    from docx import Document
+    from docx.shared import Pt as DocxPt
+
+    # Read text file
+    with open('$input_file', 'r', encoding='utf-8', errors='replace') as f:
+        content = f.read()
+
+    # Create document
+    doc = Document()
+
+    # Add content as paragraphs
+    for line in content.split('\n'):
+        p = doc.add_paragraph(line)
+
+    doc.save('$output_file')
+except ImportError:
+    # Fallback: Create a simple DOCX using basic XML
+    import zipfile
+    import os
+
+    # Read text file
+    with open('$input_file', 'r', encoding='utf-8', errors='replace') as f:
+        content = f.read()
+
+    # Escape XML special characters
+    content = content.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+
+    # Create paragraphs
+    paragraphs = ''.join([f'<w:p><w:r><w:t>{line}</w:t></w:r></w:p>' for line in content.split('\n')])
+
+    # Document XML
+    document_xml = f'''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+<w:body>{paragraphs}</w:body>
+</w:document>'''
+
+    # Content Types XML
+    content_types = '''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
+<Default Extension="xml" ContentType="application/xml"/>
+<Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>
+</Types>'''
+
+    # Relationships XML
+    rels_xml = '''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/>
+</Relationships>'''
+
+    # Create DOCX (ZIP file)
+    with zipfile.ZipFile('$output_file', 'w', zipfile.ZIP_DEFLATED) as docx:
+        docx.writestr('[Content_Types].xml', content_types)
+        docx.writestr('_rels/.rels', rels_xml)
+        docx.writestr('word/document.xml', document_xml)
+except Exception as e:
+    print(f"Error: {e}", file=sys.stderr)
+    sys.exit(1)
+EOF
+
+    if [[ -f "$output_file" ]]; then
+        log_success "Converted to: $output_file"
+        return 0
+    else
+        log_error "Conversion failed for $input_basename"
+        return 1
     fi
 }
 
@@ -395,12 +644,12 @@ process_batch() {
 
     file_count=${#files[@]}
 
-    if [ $file_count -eq 0 ]; then
-        echo "No files found matching pattern: $input_pattern"
+    if [[ $file_count -eq 0 ]]; then
+        log_error "No files found matching pattern: $input_pattern"
         return 1
     fi
 
-    echo "Found $file_count files to process"
+    log_info "Found $file_count files to process"
 
     # Process each file
     for file in "${files[@]}"; do
@@ -603,8 +852,48 @@ check_libreoffice
 
 # Process based on input file extension
 case "$file_ext" in
-    doc|docx|ppt|pptx|xls|xlsx|odt|odp|ods)
+    doc|docx|ppt|pptx|xls|xlsx|odt|odp|ods|rtf|csv)
         convert_to_pdf "$input_file" "$output_file"
+        ;;
+    txt)
+        # TXT can be converted to PDF or DOCX
+        if [[ -z "$output_file" ]]; then
+            # Ask user for the desired output format
+            echo "Convert to which format?"
+            echo "1) PDF"
+            echo "2) DOCX (Word Document)"
+            read -p "Enter your choice (1/2): " choice
+
+            case "$choice" in
+                1)
+                    convert_to_pdf "$input_file" ""
+                    ;;
+                2)
+                    convert_txt_to_docx "$input_file" ""
+                    ;;
+                *)
+                    log_error "Invalid choice. Exiting."
+                    exit 1
+                    ;;
+            esac
+        else
+            # Determine output format from specified output file
+            output_ext="${output_file##*.}"
+            output_ext=$(echo "$output_ext" | tr '[:upper:]' '[:lower:]')
+
+            case "$output_ext" in
+                pdf)
+                    convert_to_pdf "$input_file" "$output_file"
+                    ;;
+                docx)
+                    convert_txt_to_docx "$input_file" "$output_file"
+                    ;;
+                *)
+                    log_error "Unsupported output format for TXT. Please use .pdf or .docx extension."
+                    exit 1
+                    ;;
+            esac
+        fi
         ;;
     pdf)
         # First, try to check dependencies without noise
@@ -684,7 +973,8 @@ case "$file_ext" in
         fi
         ;;
     *)
-        echo "Error: Unsupported file format. Please use PDF, DOC, DOCX, PPT, PPTX, XLS, XLSX files."
+        log_error "Unsupported file format '.$file_ext'"
+        echo "Supported formats: PDF, DOC, DOCX, PPT, PPTX, XLS, XLSX, TXT, RTF, CSV, ODT, ODP, ODS"
         exit 1
         ;;
 esac
