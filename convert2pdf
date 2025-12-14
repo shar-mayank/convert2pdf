@@ -8,7 +8,7 @@
 
 set -o pipefail
 
-VERSION="0.1.0"
+VERSION="1.0.0"
 
 # Colors for output (only if terminal supports it)
 if [[ -t 1 ]]; then
