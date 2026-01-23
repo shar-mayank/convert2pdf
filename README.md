@@ -7,12 +7,12 @@ A versatile command-line tool to convert between Office formats and PDF.
 
 ## Features
 
-- 📄 Convert Office documents to PDF (DOCX, PPTX, XLSX, ODS, ODT, ODP, TXT, RTF, CSV)
-- 📋 Convert PDF back to Office formats (DOCX, PPTX)
-- 🔄 Batch conversion support for processing multiple files
-- 🎨 Colored output for better readability
-- ⚡ Cross-platform support (macOS, Linux)
-- 🐚 Shell completion for Bash and Zsh
+- Convert Office documents to PDF (DOCX, PPTX, XLSX, ODS, ODT, ODP, TXT, RTF, CSV)
+- Convert PDF back to Office formats (DOCX, PPTX)
+- Batch conversion support for processing multiple files
+- Colored output for better readability
+- Cross-platform support (macOS, Linux)
+- Shell completion for Bash and Zsh
 
 ## Installation
 
