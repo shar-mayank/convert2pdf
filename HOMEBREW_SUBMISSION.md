@@ -48,7 +48,7 @@ brew tap shar-mayank/tools
 brew install --build-from-source shar-mayank/tools/convert2pdf
 
 # Run tests
-brew test convert2pdf
+brew test shar-mayank/tools/convert2pdf
 
 # Audit the formula
 brew audit --strict shar-mayank/tools/convert2pdf
