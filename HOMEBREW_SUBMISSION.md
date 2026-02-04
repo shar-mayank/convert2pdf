@@ -39,16 +39,19 @@ Update `Formula/convert2pdf.rb` with the correct SHA256 if it differs.
 
 ### 3. Test the Formula Locally
 
+For personal taps, test installation via the tap:
+
 ```bash
-# Install the formula from local file
-brew install --build-from-source Formula/convert2pdf.rb
+# Test via your tap
+brew untap shar-mayank/tools
+brew tap shar-mayank/tools
+brew install --build-from-source shar-mayank/tools/convert2pdf
 
 # Run tests
 brew test convert2pdf
 
 # Audit the formula
-brew audit --new convert2pdf
-brew audit --strict convert2pdf
+brew audit --strict shar-mayank/tools/convert2pdf
 ```
 
 ### 4. Fork homebrew-core

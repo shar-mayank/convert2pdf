@@ -146,14 +146,31 @@ setup_dependencies() {
     # Get the directory where the script is located
     SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 
-    # Check if requirements.txt exists
-    if [[ ! -f "$SCRIPT_DIR/requirements.txt" ]]; then
-        log_warning "requirements.txt not found. Installing packages individually..."
-        pip3 install --user "numpy<2.0" pdf2docx==0.5.8 PyPDF2==3.0.1 python-pptx==1.0.2
+    # Also check Homebrew pkgshare location for requirements.txt
+    HOMEBREW_SHARE=""
+    if [[ -f "/opt/homebrew/share/convert2pdf/requirements.txt" ]]; then
+        HOMEBREW_SHARE="/opt/homebrew/share/convert2pdf"
+    elif [[ -f "/usr/local/share/convert2pdf/requirements.txt" ]]; then
+        HOMEBREW_SHARE="/usr/local/share/convert2pdf"
+    fi
+
+    # Determine pip install flags for PEP 668 compliance
+    PIP_FLAGS="--user"
+    # Check if we need --break-system-packages (Python 3.11+)
+    if python3 -c "import sys; sys.exit(0 if sys.version_info >= (3, 11) else 1)" 2>/dev/null; then
+        PIP_FLAGS="--user --break-system-packages"
+    fi
+
+    # Check if requirements.txt exists (local first, then Homebrew share)
+    if [[ -f "$SCRIPT_DIR/requirements.txt" ]]; then
+        log_info "Installing Python dependencies from local requirements.txt..."
+        pip3 install $PIP_FLAGS -r "$SCRIPT_DIR/requirements.txt"
+    elif [[ -n "$HOMEBREW_SHARE" && -f "$HOMEBREW_SHARE/requirements.txt" ]]; then
+        log_info "Installing Python dependencies from Homebrew share..."
+        pip3 install $PIP_FLAGS -r "$HOMEBREW_SHARE/requirements.txt"
     else
-        # Install all dependencies from requirements.txt
-        log_info "Installing Python dependencies..."
-        pip3 install --user -r "$SCRIPT_DIR/requirements.txt"
+        log_warning "requirements.txt not found. Installing packages individually..."
+        pip3 install $PIP_FLAGS "numpy<2.0" pdf2docx==0.5.8 PyPDF2==3.0.1 python-pptx==1.0.2
     fi
 
     if [[ $? -eq 0 ]]; then
