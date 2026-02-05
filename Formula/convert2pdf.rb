@@ -30,8 +30,25 @@ class Convert2pdf < Formula
   end
 
   test do
-    assert_match "convert2pdf version", shell_output("#{bin}/convert2pdf --version")
-    assert_match "Usage:", shell_output("#{bin}/convert2pdf --help")
+    # Verify the binary is executable
     assert_predicate bin/"convert2pdf", :executable?
+
+    # Test version output
+    assert_match "convert2pdf version", shell_output("#{bin}/convert2pdf --version")
+
+    # Test help output contains expected sections
+    help_output = shell_output("#{bin}/convert2pdf --help")
+    assert_match "Usage:", help_output
+    assert_match "Supported input formats:", help_output
+    assert_match "--batch", help_output
+
+    # Test error handling for non-existent file
+    output = shell_output("#{bin}/convert2pdf nonexistent.docx 2>&1", 1)
+    assert_match "not found", output
+
+    # Test error handling for unsupported format
+    (testpath/"test.xyz").write("test content")
+    output = shell_output("#{bin}/convert2pdf #{testpath}/test.xyz 2>&1", 1)
+    assert_match "Unsupported file format", output
   end
 end
